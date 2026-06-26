@@ -17,21 +17,41 @@ AV attack surface**: perception (this) and in-vehicle network (CAN IDS).
 Adversarial patches are, by construction, dense high-frequency noise — they light up
 against the smooth statistics of a real scene.
 
-## Run it (numpy + Pillow, no dataset needed)
+## Run it
+
+**Detector demo (numpy + Pillow, no dataset):**
 ```bash
 pip install numpy pillow
-python cli.py demo                 # makes a clean + patched image, detects, saves overlays
+python cli.py demo                 # synthetic clean + patched image, detect, save overlays
 python cli.py scan path/to/img.png # run on your own image; writes *_detected.png
 ```
-`demo` writes `outputs/clean.png`, `outputs/patched.png`, and `outputs/patched_detected.png`
-(the last with a red box around the detected patch).
+
+**Real end-to-end defense against a REAL model** (`pip install torch torchvision`):
+```bash
+python cli.py defend               # uses a sample photo (or: defend path/to/img.png)
+```
+This is the real experiment (`vision.py`):
+1. classify a real photo with **pretrained MobileNetV2** (ImageNet),
+2. **gradient-optimize an adversarial patch** that genuinely flips the prediction,
+3. run the detector to **localize** the patch,
+4. **mask** the detected region and re-classify → measure **recovered accuracy**.
+
+Example run (sample dog photo):
+```
+1. Clean image       -> Samoyed (16.6%)        [correct]
+2. Adversarial patch -> jackfruit (97.6%)      [FOOLED — model confidently wrong]
+3. Detector localizes the patch (IoU 0.44)
+4. Mask + reclassify -> Samoyed (25.0%)        [RECOVERED]
+```
+That step-4 number — recovered accuracy after masking the detected patch — is the metric
+AV-perception robustness papers actually report.
 
 ## Honest scope & roadmap
-- This is a **heuristic frequency/saturation** detector — a strong, explainable baseline.
-  It will flag any dense high-frequency region, so a busy natural texture *could* trip it;
-  it is not a trained classifier. Stated plainly, not hidden.
-- **ML path:** train a small CNN patch-vs-clean classifier and compare precision/recall to
-  this baseline (this baseline becomes your honest control).
-- **Eval path:** evaluate on a real dataset (e.g. APRICOT) and report ROC/AP.
-- **Robustness tie-in:** feed detections to a downstream model as a mask to measure
-  recovered accuracy under attack — the metric AV-perception papers care about.
+- The detector itself is a **heuristic frequency/saturation** baseline — explainable, no
+  training. It can flag any dense high-frequency region, so busy natural texture *could*
+  trip it. Stated plainly, not hidden.
+- **Real model + real attack (done):** `vision.py` runs a pretrained classifier, optimizes
+  a true adversarial patch that fools it, then measures recovery after masking the
+  detected region. Not synthetic noise — a gradient attack on a real network.
+- **Next:** train a small CNN patch-vs-clean classifier and compare precision/recall to this
+  heuristic baseline; evaluate on a real dataset (e.g. APRICOT) and report ROC/AP.

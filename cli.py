@@ -10,6 +10,9 @@ import argparse
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import numpy as np
 from PIL import Image
 
@@ -58,15 +61,67 @@ def cmd_scan(args):
     print(f"  overlay saved -> {out}")
 
 
+def _ensure_sample():
+    """Grab a real photo (ImageNet-classifiable) for the defense demo."""
+    samp = Path(__file__).parent / "samples" / "dog.jpg"
+    samp.parent.mkdir(exist_ok=True)
+    if not samp.exists():
+        import urllib.request
+        urllib.request.urlretrieve(
+            "https://raw.githubusercontent.com/pytorch/hub/master/images/dog.jpg", samp)
+    return str(samp)
+
+
+def cmd_defend(args):
+    """Real pipeline: classify -> adversarial patch fools the model -> detect -> mask -> recover."""
+    import vision  # heavy (torch) — imported only when needed
+    OUT.mkdir(exist_ok=True)
+    path = args.path or _ensure_sample()
+    print(f"Image: {path}\n")
+
+    x = vision.load_image_01(path)
+    clean = vision.classify(x)
+    print(f"  1. Clean image      -> {clean['label']} ({clean['conf']*100:.1f}%)")
+
+    print("  2. Optimizing an adversarial patch to fool the model... (a few seconds)")
+    x_adv, true_box = vision.make_adversarial_patch(x)
+    attacked = vision.classify(x_adv)
+    fooled = attacked["idx"] != clean["idx"]
+    print(f"     After patch      -> {attacked['label']} ({attacked['conf']*100:.1f}%)  "
+          f"[{'FOOLED' if fooled else 'not fooled'}]")
+
+    adv_np = vision.to_numpy_image(x_adv)
+    result, _ = detector.detect(adv_np, ratio_thresh=3.0)
+    det_box = result["bounding_box"]
+    overlap = vision.iou(det_box, true_box)
+    print(f"  3. Detector found patch at {det_box}  (IoU {overlap:.2f} vs true patch)")
+
+    if det_box:
+        recovered = vision.classify(vision.mask_region(x_adv, det_box))
+        ok = recovered["idx"] == clean["idx"]
+        print(f"  4. Mask + reclassify -> {recovered['label']} ({recovered['conf']*100:.1f}%)  "
+              f"[{'RECOVERED' if ok else 'still wrong'}]")
+    else:
+        print("  4. No region detected — nothing to mask.")
+
+    Image.fromarray(adv_np.astype(np.uint8)).save(OUT / "adversarial.png")
+    detector.save_overlay(adv_np, result, OUT / "adversarial_detected.png")
+    print(f"\n  saved: {OUT}\\adversarial.png, adversarial_detected.png")
+
+
 def main():
     p = argparse.ArgumentParser(description="Adversarial patch detector")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("demo")
     s = sub.add_parser("scan")
     s.add_argument("path")
+    d = sub.add_parser("defend", help="real model + real adversarial patch + detect/mask/recover")
+    d.add_argument("path", nargs="?", default=None, help="image (defaults to a sample photo)")
     args = p.parse_args()
     if args.cmd == "scan":
         cmd_scan(args)
+    elif args.cmd == "defend":
+        cmd_defend(args)
     else:
         cmd_demo(args)
 
