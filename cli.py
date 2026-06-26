@@ -91,10 +91,16 @@ def cmd_defend(args):
           f"[{'FOOLED' if fooled else 'not fooled'}]")
 
     adv_np = vision.to_numpy_image(x_adv)
-    result, _ = detector.detect(adv_np, ratio_thresh=3.0)
+    if getattr(args, "cnn", False):
+        import cnn
+        result = cnn.detect_cnn(adv_np)
+        tag = "trained CNN"
+    else:
+        result, _ = detector.detect(adv_np, ratio_thresh=3.0)
+        tag = "heuristic"
     det_box = result["bounding_box"]
     overlap = vision.iou(det_box, true_box)
-    print(f"  3. Detector found patch at {det_box}  (IoU {overlap:.2f} vs true patch)")
+    print(f"  3. [{tag}] found patch at {det_box}  (IoU {overlap:.2f} vs true patch)")
 
     if det_box:
         recovered = vision.classify(vision.mask_region(x_adv, det_box))
@@ -109,17 +115,33 @@ def cmd_defend(args):
     print(f"\n  saved: {OUT}\\adversarial.png, adversarial_detected.png")
 
 
+def cmd_train(args):
+    import cnn
+    print("Training patch-vs-clean CNN (CIFAR-10 natural images vs adversarial-style patches)...")
+    m = cnn.train(epochs=args.epochs)
+    print(f"\n  test samples : {m['test_n']}")
+    print(f"  accuracy     : {m['accuracy']*100:.1f}%")
+    print(f"  precision    : {m['precision']*100:.1f}%")
+    print(f"  recall       : {m['recall']*100:.1f}%")
+    print(f"  saved model  -> {cnn.WEIGHTS.name}")
+
+
 def main():
     p = argparse.ArgumentParser(description="Adversarial patch detector")
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("demo")
     s = sub.add_parser("scan")
     s.add_argument("path")
+    t = sub.add_parser("train", help="train the patch-vs-clean CNN classifier")
+    t.add_argument("--epochs", type=int, default=5)
     d = sub.add_parser("defend", help="real model + real adversarial patch + detect/mask/recover")
     d.add_argument("path", nargs="?", default=None, help="image (defaults to a sample photo)")
+    d.add_argument("--cnn", action="store_true", help="detect with the trained CNN instead of the heuristic")
     args = p.parse_args()
     if args.cmd == "scan":
         cmd_scan(args)
+    elif args.cmd == "train":
+        cmd_train(args)
     elif args.cmd == "defend":
         cmd_defend(args)
     else:
