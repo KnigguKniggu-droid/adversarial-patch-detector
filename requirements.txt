@@ -1,0 +1,5 @@
+numpy>=1.24
+pillow>=10.0
+# Optional — only needed for the trained CNN + real-model defense (`cli.py train` / `defend`):
+# torch
+# torchvision

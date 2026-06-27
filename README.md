@@ -1,5 +1,17 @@
 # Adversarial Patch Detector
 
+> **TL;DR** — Detects adversarial patches two ways: an explainable frequency/saturation
+> heuristic and a **trained CNN (99.9% test accuracy)**. The end-to-end demo fools a real
+> MobileNetV2 with an optimized patch, localizes it, and **recovers** the correct prediction
+> by masking the detected region.
+
+### Quickstart
+```bash
+pip install -r requirements.txt
+python cli.py demo          # heuristic detector on a synthetic scene (numpy/Pillow only)
+python cli.py defend        # real model + real attack + recovery (needs torch)
+```
+
 Detects **adversarial patch attacks** — the printed stickers/perturbations that fool a
 vision model (e.g. an autonomous vehicle misreading a stop sign). A model-free, fully
 explainable baseline: it flags small image regions whose local high-frequency energy is
